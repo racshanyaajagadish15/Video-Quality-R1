@@ -25,31 +25,29 @@ class VideoQualityReward:
         self.w_kl = w_kl
         self.kl_coef = kl_coef
 
-    def mos_reward(
-        self,
-        pred_scores: torch.Tensor,   # (B,) predicted MOS
-        gt_scores: torch.Tensor,     # (B,) ground-truth MOS
-    ) -> torch.Tensor:
-        """PLCC-based reward: high Pearson correlation → high reward."""
-        pred_np = pred_scores.detach().cpu().numpy()
-        gt_np = gt_scores.cpu().numpy()
+    import numpy as np
 
-        if len(pred_np) < 3:
-            # Fallback: negative MSE for tiny batches
+    def mos_reward(self, pred_scores, gt_scores):
+        pred_np = pred_scores.detach().cpu().numpy()
+        gt_np   = gt_scores.cpu().numpy()
+
+        # Guard: need at least 3 points AND non-constant values for correlation
+        if len(pred_np) < 3 or np.std(pred_np) < 1e-6 or np.std(gt_np) < 1e-6:
             mse = F.mse_loss(pred_scores, gt_scores.to(pred_scores.device))
             return torch.ones(len(pred_np), device=pred_scores.device) * (1.0 - mse.item())
 
         plcc, _ = pearsonr(pred_np, gt_np)
         srcc, _ = spearmanr(pred_np, gt_np)
-        correlation = 0.5 * (plcc + srcc)  # combined metric
 
-        # Per-sample reward: combine correlation with local accuracy
+        # Guard against NaN even when std check passes (e.g. near-constant)
+        if np.isnan(plcc): plcc = 0.0
+        if np.isnan(srcc): srcc = 0.0
+
+        correlation = 0.5 * (plcc + srcc)
         local_err = torch.abs(pred_scores - gt_scores.to(pred_scores.device))
-        local_reward = torch.clamp(1.0 - local_err / 4.0, 0.0, 1.0)  # [0,1]
-
-        # Scale: correlation boosts or penalises the whole batch
+        local_reward = torch.clamp(1.0 - local_err / 4.0, 0.0, 1.0)
         reward = local_reward * (0.5 + 0.5 * max(correlation, 0.0))
-        return reward  # (B,)
+        return reward
 
     def ranking_reward(
         self,

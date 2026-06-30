@@ -58,7 +58,8 @@ def main():
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=2,
-        collate_fn=vqa_collate_fn,   # ← add this
+        collate_fn=vqa_collate_fn,  
+        drop_last=True, # ← add this
     )
 
     for epoch in range(EPOCHS):
